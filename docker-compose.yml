@@ -1,14 +1,27 @@
+# Local development. docker-compose.override.yml is applied on top of this
+# automatically and adds the bind mounts and the autoreloading server.
+#
+# Every published port binds 127.0.0.1 on purpose. `- "5432:5432"` binds
+# 0.0.0.0, which means the database is reachable by anything that can route to
+# this host — on a shared dev box or a laptop on a café network, that is a
+# database on the internet with a password from a template.
+
 services:
   db:
     image: postgres:16
     environment:
-      POSTGRES_DB: ${DB_NAME}
-      POSTGRES_USER: ${DB_USER}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME:?}
+      POSTGRES_USER: ${DB_USER:?}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?}
     volumes:
       - postgres_data:/var/lib/postgresql/data/
     ports:
-      - "${DB_PORT}:5432"
+      - "127.0.0.1:${DB_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   backend:
     build:
@@ -17,26 +30,37 @@ services:
     env_file:
       - .env
     environment:
-      - DB_HOST=db
-      - DB_PORT=5432
+      DB_HOST: db
+      DB_PORT: 5432
     ports:
-      - "${BACKEND_PORT}:8000"
+      - "127.0.0.1:${BACKEND_PORT:-8000}:8000"
     depends_on:
-      - db
+      db:
+        condition: service_healthy
 
   frontend:
     build:
       context: ./frontend/
       dockerfile: ./Dockerfile
+    environment:
+      # Vite proxies /api to the backend, so the browser only ever talks to one
+      # origin and no CORS configuration is needed in development either. From
+      # inside this container the backend is `backend:8000`, not localhost.
+      VITE_PROXY_TARGET: http://backend:8000
     ports:
-      - "${FRONTEND_PORT}:5173"
+      - "127.0.0.1:${FRONTEND_PORT:-5173}:5173"
+    depends_on:
+      - backend
 
+  # Log viewer. It mounts the docker socket, which is root-equivalent on this
+  # host, so it is loopback-bound and read-only and belongs nowhere near a
+  # production compose file.
   dozzle:
     image: amir20/dozzle:latest
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     ports:
-      - ${DOZZLE_PORT}:8080
+      - "127.0.0.1:${DOZZLE_PORT:-5052}:8080"
     restart: unless-stopped
 
 volumes:

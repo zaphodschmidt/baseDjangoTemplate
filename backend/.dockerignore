@@ -1,0 +1,16 @@
+# The backend build context is ./backend, so Docker reads THIS file, not the
+# repo-root .dockerignore. A secret excluded only at the root would still be
+# copied into this image.
+.env
+.env.*
+*.pem
+*.key
+*service-account*.json
+*credentials*.json
+
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+static/

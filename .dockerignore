@@ -1,0 +1,32 @@
+# What must never reach a build context. The rule is not image size: anything
+# copied in is in a layer, and a layer is readable by anyone who can pull the
+# image — so a .env in the context is a leaked credential even if no Dockerfile
+# COPYs it by name.
+#
+# Check this file AND .gitignore whenever you add a file that could hold a
+# secret. A leaked service-account key once matched neither of two patterns
+# that were both supposed to catch it.
+
+.env
+.env.*
+!.env.template
+*.pem
+*.key
+*service-account*.json
+*credentials*.json
+
+.git
+.github
+backups/
+
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+node_modules/
+dist/
+
+# Per-context ignores: Docker reads the .dockerignore next to the CONTEXT root,
+# not this one, for any build whose context is a subdirectory. backend/ and
+# frontend/ therefore carry their own.

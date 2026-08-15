@@ -1,0 +1,74 @@
+# Production. `tools/deploy.sh` drives this file on the server.
+#
+# Three differences from docker-compose.yml, each one deliberate:
+#
+#   1. No bind mounts. The image contains the code, so what was verified is
+#      what runs. A bind mount means the running code is whatever is in the
+#      checkout, which is not necessarily the tag you deployed.
+#   2. The database publishes NOTHING. Nothing outside this network needs to
+#      reach Postgres, and a published port is reachable by anything that can
+#      route to the host. `tools/` reaches it over ssh + peer auth instead.
+#   3. nginx is the only public service, and it is the only image that changes
+#      when the frontend changes.
+#
+# Images build ON this box — there is no registry — which is why
+# `tools/verify.sh` builds them locally first. A build failure here happens
+# after the checkout has already moved to the new tag, with the stack down.
+
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:?}
+      POSTGRES_USER: ${DB_USER:?}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      DEBUG: "false"
+    entrypoint: ["/app/entrypoint.sh"]
+    # Clears the image's CMD. Without this, Docker appends it as arguments to
+    # the entrypoint, which ignores them — a gunicorn invocation that looks
+    # configured and is not.
+    command: []
+    # Loopback only. nginx reaches it over the compose network by name; this
+    # binding exists so tools/deploy.sh can probe the backend directly when
+    # there is no public hostname to poll.
+    ports:
+      - "127.0.0.1:${BACKEND_PORT:-8000}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  nginx:
+    build:
+      context: .
+      dockerfile: nginx/Dockerfile
+      args:
+        # Empty means same-origin: the browser calls /api/... on whatever host
+        # it loaded the page from. Set it only if the API lives elsewhere.
+        VITE_API_BASE_URL: "${VITE_API_BASE_URL-}"
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-80}:80"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:

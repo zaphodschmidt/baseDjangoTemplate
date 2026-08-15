@@ -1,0 +1,57 @@
+# CI runs the SAME command you run locally: `make check` → tools/verify.sh.
+#
+# One definition of "verified", not two that drift. A CI job that runs its own
+# hand-written list of steps starts as a copy of the gate and ends as a
+# different gate — usually a weaker one, and usually without anyone noticing.
+
+name: check
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      # verify.sh reads .env for the database name, user and host port, exactly
+      # as it does on a dev box. The values are throwaway; the SECRET_KEY is
+      # generated per run so nothing that could become a real credential is
+      # committed anywhere.
+      - name: Write .env
+        run: |
+          cp .env.template .env
+          {
+            echo "SECRET_KEY=$(openssl rand -hex 32)"
+            echo "DB_PASSWORD=$(openssl rand -hex 16)"
+            echo "DEBUG=true"
+          } >> .env
+
+      - name: Start the stack
+        run: docker compose up -d db backend
+
+      - name: make check
+        run: make check
+
+      - name: Logs on failure
+        if: failure()
+        run: docker compose logs --tail=100

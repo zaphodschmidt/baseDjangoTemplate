@@ -1,0 +1,30 @@
+line-length = 100
+target-version = "py312"
+
+exclude = ["*/migrations/*"]
+
+[lint]
+select = [
+    "E", "W",   # pycodestyle
+    "F",        # pyflakes
+    "I",        # import sorting — one order, so imports never appear in a diff
+    "UP",       # pyupgrade
+    "B",        # bugbear
+    "DJ",       # Django-specific
+    "S",        # bandit: the security rules that are mechanically checkable
+    "T20",      # no print() — container logs are readable, and a stray print
+                # of a request body is how a credential ends up in them
+]
+ignore = [
+    "S101",     # assert: fine in tests, and this repo has no asserts in prod code
+    "E501",     # line length is handled by the formatter
+]
+
+[lint.per-file-ignores]
+# Settings legitimately reads the environment and raises on bad config.
+"config/settings.py" = ["S105", "S106"]
+"**/tests.py" = ["S101", "S105", "S106"]
+"**/tests/*" = ["S101", "S105", "S106"]
+
+[format]
+quote-style = "single"
