@@ -123,13 +123,13 @@ info "archive to restore from: $ARCHIVE"
 confirm "Delete the volume and continue?" || die "aborted — nothing was changed"
 
 log "Stopping the stack"
-dock compose -f "$COMPOSE_LOCAL" down
+dock compose "${COMPOSE_LOCAL_ARGS[@]}" down
 
 log "Removing volume $VOLUME"
 dock volume rm "$VOLUME" >/dev/null 2>&1 || warn "volume $VOLUME was already gone"
 
 log "Starting postgres:${TO_MAJOR}"
-dock compose -f "$COMPOSE_LOCAL" up -d "$DB_SERVICE"
+dock compose "${COMPOSE_LOCAL_ARGS[@]}" up -d "$DB_SERVICE"
 
 log "Waiting for the new server"
 resolve_target local
@@ -151,7 +151,7 @@ ASSUME_YES=1 "$TOOLS_DIR/db-restore.sh" full "$ARCHIVE" --target local --no-safe
   || die "restore failed. The archive is still at: $ARCHIVE"
 
 log "Bringing the rest of the stack up (Django will re-run migrate)"
-dock compose -f "$COMPOSE_LOCAL" up -d
+dock compose "${COMPOSE_LOCAL_ARGS[@]}" up -d
 
 hdr "Upgrade complete: PostgreSQL ${FROM_MAJOR} -> ${TO_MAJOR}"
 info "archive kept at $ARCHIVE — delete it once you've used the app and are happy"

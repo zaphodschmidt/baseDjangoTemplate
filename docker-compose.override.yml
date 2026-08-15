@@ -1,10 +1,21 @@
+# Applied on top of docker-compose.yml automatically, for local development
+# only. Compose does NOT apply it when you name a file explicitly, which is why
+# `docker compose -f docker-compose.prod.yml` on this box is a genuine
+# production stack and not a dev one.
+
 services:
   backend:
     volumes:
       - ./backend:/app
+    # runserver, not gunicorn: it reloads on edit. It is also single-threaded
+    # and serves no static files the way the production image does, so a bug
+    # that only appears under gunicorn will not appear here — which is what
+    # tools/verify.sh's image-build gate is for.
     command: python manage.py runserver 0.0.0.0:8000
 
   frontend:
     volumes:
       - ./frontend:/app/
+      # Anonymous volume so the container's own node_modules (built for its
+      # platform) is not shadowed by the host's.
       - /app/node_modules

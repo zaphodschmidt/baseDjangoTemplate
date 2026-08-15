@@ -1,0 +1,6 @@
+# The frontend dev build's context is ./frontend, so Docker reads THIS file.
+# (The production image builds from the repo root — see nginx/Dockerfile.)
+.env
+.env.*
+node_modules/
+dist/

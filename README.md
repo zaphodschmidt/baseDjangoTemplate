@@ -13,24 +13,31 @@ Claude Code reads, so the conventions apply to human and agent alike.
 ## Start
 
 ```bash
-cp .env.template .env      # then edit it
+cp .env.template .env
+python -c 'from django.core.management.utils import get_random_secret_key as k; print(k())'
+#   ...paste into SECRET_KEY, set DB_PASSWORD, then:
 make up                    # start the stack
-make check                 # the gate — run this before every push
+make hooks                 # install the git hooks (once per checkout)
+make check                 # THE GATE — run this before every push
 ```
 
 `make` with no target lists everything.
 
+The stack is **same-origin in both environments**: vite proxies `/api` to the
+backend in development, nginx serves the built frontend and proxies `/api` in
+production. That is why there is no CORS configuration anywhere, and why the
+frontend calls `/api/...` rather than a hostname.
+
 ## First commits in a new project
 
 1. Edit [`tools/project.env`](tools/project.env) — identity, service names, ssh
-   aliases. It is the only file in `tools/` that a new project should need to
-   change.
-2. Work through **Known divergences in this template** in `CLAUDE.md`. The
-   template ships with `DEBUG = True`, a committed `SECRET_KEY`, and no default
-   DRF permission class; each is listed there with its `file:line` and the
-   smallest fix.
-3. Rewrite `CLAUDE.md`'s stack table and layout for what you are actually
+   aliases. It is the only file in `tools/` a new project should need to change.
+2. Pick your host ports in `.env`. Any host port is a shared resource on a box
+   running several stacks, and the obvious default is the most likely to be
+   taken — `docker ps --format '{{.Ports}}'` before you claim one.
+3. Rename `apps/core` to your real core app if you want, and fill in the
+   blessed-core table in [`backend/apps/README.md`](backend/apps/README.md).
+   That table is the only place the one-way dependency rule is checkable.
+4. Rewrite `CLAUDE.md`'s stack table and layout for what you are actually
    building, and delete the sections that do not apply. Leave the reasoning
    alone — that part is portable.
-4. Write `docker-compose.prod.yml`. Until it exists, every remote-target tool
-   refuses to run, on purpose.

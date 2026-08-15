@@ -68,10 +68,10 @@ BASE="http://localhost:${BACKEND_PORT}"
 # suite run — it has the Python dependencies and can resolve the `db` host, and
 # the host shell can do neither.
 ensure_backend_up() {
-  if dock compose -f "$COMPOSE_LOCAL" ps --status running --services 2>/dev/null \
+  if dock compose "${COMPOSE_LOCAL_ARGS[@]}" ps --status running --services 2>/dev/null \
        | grep -qx "$BACKEND_SERVICE"; then return 0; fi
   log "$BACKEND_SERVICE is not running — starting $DB_SERVICE + $BACKEND_SERVICE"
-  dock compose -f "$COMPOSE_LOCAL" up -d "$DB_SERVICE" "$BACKEND_SERVICE" >/dev/null 2>&1 \
+  dock compose "${COMPOSE_LOCAL_ARGS[@]}" up -d "$DB_SERVICE" "$BACKEND_SERVICE" >/dev/null 2>&1 \
     || die "could not start the local stack (gates 1, 2 and 4 need it)"
   local deadline=$(( $(date +%s) + 120 ))
   until curl -fsS -o /dev/null "${BASE}${HEALTH_PATH}" 2>/dev/null; do
@@ -83,7 +83,7 @@ ensure_backend_up() {
 }
 
 # Run a command inside the backend container.
-bex() { dock compose -f "$COMPOSE_LOCAL" exec -T "$BACKEND_SERVICE" "$@"; }
+bex() { dock compose "${COMPOSE_LOCAL_ARGS[@]}" exec -T "$BACKEND_SERVICE" "$@"; }
 
 # ── 1. Django system checks ────────────────────────────────────────────────
 stage "Django system checks"

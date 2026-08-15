@@ -6,6 +6,11 @@
 # production. They are written 0600 and they never go in git.
 /backups/
 
+# collectstatic output. The directory is tracked (WhiteNoise warns without it);
+# its contents are build artifacts.
+/backend/static/*
+!/backend/static/.gitkeep
+
 # Python
 __pycache__/
 *.py[cod]

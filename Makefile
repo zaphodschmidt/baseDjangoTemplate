@@ -4,17 +4,22 @@
 #
 # `make` on its own lists the targets.
 .DEFAULT_GOAL := help
-.PHONY: help up up-backend down down-now restart logs ps shell check check-quick \
-        migrate api test deploy deploy-prod deploy-dry rollback \
+.PHONY: help hooks up up-backend down down-now restart logs ps shell \
+        check check-quick lint migrate api test deploy deploy-prod deploy-dry rollback \
         backup backup-prod backup-test backups restore restore-latest \
         db-monitor db-selftest db-selftest-full db-cron db-refresh db-refresh-test \
         pg-upgrade worker-role
 
-COMPOSE ?= docker compose -f docker-compose.yml
+# No -f: Compose auto-loads docker-compose.override.yml only when no file is
+# named explicitly, and the override is what makes the local stack a DEV stack.
+COMPOSE ?= docker compose
 
 help:  ## List targets
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
 	  | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
+
+hooks:  ## Install the git hooks (run once per checkout)
+	pre-commit install --hook-type pre-commit --hook-type commit-msg
 
 # ── Local stack ────────────────────────────────────────────────────────────
 up:  ## Start the whole local stack
@@ -50,6 +55,13 @@ check-quick:  ## The gate without tests or the image build
 
 test:  ## Backend tests only
 	$(COMPOSE) exec backend python manage.py test --noinput
+
+# ruff comes from pre-commit, which pins its version — so `make lint`, the
+# commit hook and CI all run the SAME ruff. A `pip install ruff` on the side
+# would be a second version disagreeing with the first about your code.
+lint:  ## ruff + tsc, without starting anything
+	pre-commit run --all-files
+	cd frontend && pnpm exec tsc --noEmit
 
 # ── Schema and client ──────────────────────────────────────────────────────
 migrate:  ## makemigrations + migrate + regenerate the API client

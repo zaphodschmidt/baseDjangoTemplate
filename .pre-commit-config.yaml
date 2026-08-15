@@ -1,0 +1,42 @@
+# Install once:  make hooks
+#
+# These hooks catch what is cheap to catch on the way in, so it never reaches
+# review. They are NOT the gate — `make check` is. Nothing here starts a
+# container or touches a database.
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-merge-conflict
+      - id: check-yaml
+      - id: check-added-large-files
+        args: ['--maxkb=1024']
+      # A key in a commit is not fixed by deleting it in the next one: git
+      # history is permanent, so the only real remedy is rotation. Catching it
+      # here is the difference between an amend and a rotation.
+      - id: detect-private-key
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.4
+    hooks:
+      - id: ruff
+        args: [--fix]
+        files: ^backend/
+      - id: ruff-format
+        files: ^backend/
+
+  - repo: local
+    hooks:
+      # No AI trailers. The commit author is whoever ran the commit; a trailer
+      # naming a tool adds nothing a reader can act on and dilutes
+      # `git log --author`. A hook rather than a review comment, because this
+      # is the kind of rule that is tedious to enforce by hand and trivial to
+      # enforce mechanically.
+      - id: no-ai-trailers
+        name: reject AI attribution trailers
+        entry: scripts/check-commit-msg.sh
+        language: script
+        stages: [commit-msg]

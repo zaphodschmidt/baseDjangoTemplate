@@ -45,12 +45,12 @@ ENV_FILE="$(pick_env_file)"
 BACKEND_PORT="$(env_get "$ENV_KEY_BACKEND_PORT")"
 BACKEND_PORT="${BACKEND_PORT:-$DEFAULT_BACKEND_PORT}"
 
-dock compose -f "$COMPOSE_LOCAL" ps --status running --services 2>/dev/null \
+dock compose "${COMPOSE_LOCAL_ARGS[@]}" ps --status running --services 2>/dev/null \
   | grep -qx "$BACKEND_SERVICE" \
   || die "service '$BACKEND_SERVICE' is not running. Start it first:
        $DOCKER compose -f $(basename "$COMPOSE_LOCAL") up -d $BACKEND_SERVICE"
 
-bex() { dock compose -f "$COMPOSE_LOCAL" exec -T "$BACKEND_SERVICE" "$@"; }
+bex() { dock compose "${COMPOSE_LOCAL_ARGS[@]}" exec -T "$BACKEND_SERVICE" "$@"; }
 
 # ── 1. Migrations (inside the container) ───────────────────────────────────
 if [[ ${#APPS[@]} -gt 0 ]]; then

@@ -36,6 +36,15 @@ REPO_DIR="$(cd "$TOOLS_DIR/.." && pwd)"
 BACKUP_ROOT="${BACKUP_ROOT:-$REPO_DIR/backups}"
 COMPOSE_LOCAL="$REPO_DIR/${COMPOSE_LOCAL:-docker-compose.yml}"
 COMPOSE_PROD="$REPO_DIR/${COMPOSE_PROD:-docker-compose.prod.yml}"
+COMPOSE_LOCAL_OVERRIDE="$REPO_DIR/${COMPOSE_LOCAL_OVERRIDE:-docker-compose.override.yml}"
+
+# Naming a file with -f makes Compose stop auto-loading the override, so a
+# script that says `-f docker-compose.yml` starts a DIFFERENT stack from the
+# one `make up` starts — gunicorn instead of runserver, no bind mount — and
+# the next `make up` then recreates every container. One definition here, used
+# everywhere, so the two can never disagree.
+COMPOSE_LOCAL_ARGS=(-f "$COMPOSE_LOCAL")
+[[ -f "$COMPOSE_LOCAL_OVERRIDE" ]] && COMPOSE_LOCAL_ARGS+=(-f "$COMPOSE_LOCAL_OVERRIDE")
 
 # A remote target deploys and restores through the production compose file. It
 # is not in this template, so say so once, clearly, instead of failing later
@@ -138,11 +147,17 @@ resolve_target() {
       TGT_KIND="container"
       DB_USER="${DB_USER:-$(env_get "$ENV_KEY_DB_USER")}"
       [[ -n "$DB_USER" ]] || die "$ENV_KEY_DB_USER missing in ${ENV_FILE:-<no env file>}"
-      TGT_CONTAINER="$(dock compose -f "$COMPOSE_LOCAL" ps -q "$DB_SERVICE" 2>/dev/null | head -1)"
+      # Resolve docker HERE, not implicitly inside the command substitutions
+      # below. Those redirect stderr to /dev/null, so a `die` from
+      # resolve_docker printed nothing — and because `set -e` treats a failed
+      # substitution in an assignment as fatal, the script exited 1 with no
+      # output at all. A tool that dies silently is worse than one that dies.
+      resolve_docker
+      TGT_CONTAINER="$(dock compose "${COMPOSE_LOCAL_ARGS[@]}" ps -q "$DB_SERVICE" 2>/dev/null | head -1 || true)"
       if [[ -z "$TGT_CONTAINER" ]]; then
         # Compose can't see it (different project dir, or the stack is down but
         # the container exists). Fall back to the literal container name.
-        TGT_CONTAINER="$(dock ps -aq --filter "name=${DB_SERVICE}" 2>/dev/null | head -1)"
+        TGT_CONTAINER="$(dock ps -aq --filter "name=${DB_SERVICE}" 2>/dev/null | head -1 || true)"
       fi
       [[ -n "$TGT_CONTAINER" ]] || die "local postgres container not found — start it with: $DOCKER compose -f $(basename "$COMPOSE_LOCAL") up -d $DB_SERVICE"
       ;;
@@ -231,7 +246,7 @@ read -r -a APP_SERVICES_PROD_ARR  <<<"${APP_SERVICES_PROD:-backend}"
 
 tgt_compose() {
   case "$TGT_KIND" in
-    container) dock compose -f "$COMPOSE_LOCAL" "$@" ;;
+    container) dock compose "${COMPOSE_LOCAL_ARGS[@]}" "$@" ;;
     ssh)       ssh -o BatchMode=yes "$TGT_SSH" \
                  "cd ${REMOTE_REPO_DIR} && sudo -n docker compose -f $(basename "$COMPOSE_PROD") --env-file ${REMOTE_ENV_FILE} $*" ;;
   esac
