@@ -1,42 +1,13 @@
 # CLAUDE.md
 
-Guidance for Claude Code and for humans. This file is the standard for this
-repository; where anything else disagrees with it, this file wins.
+The standard for this repository. Where anything else disagrees with it, this
+file wins.
 
-It is a **seed**. It ships with a template, so it describes a shape rather than a
-product. Two rules about the file itself:
-
-- **Delete what does not apply.** A section describing a codegen contract in a
-  repo with no codegen does not sit there inertly — it competes for attention
-  with the rules that do apply, and occasionally gets applied anyway. Prune; do
-  not ship the superset.
-- **Rewrite the stack table and the layout on day one**, then leave the
-  reasoning alone. The *why* behind each rule is portable between projects; the
-  file paths are not.
-
-A rule with no failure attached gets skimmed, so every rule below states the
-mechanism it prevents. When this repo produces its own failure, write it into
-[Incidents](#incidents) — specific and local beats general, every time.
-
----
-
-## Contents
-
-1. [Stack](#stack)
-2. [Repo layout](#repo-layout)
-3. [Module boundaries](#1-module-boundaries)
-4. [Where logic goes](#2-where-logic-goes)
-5. [No raw SQL](#3-no-raw-sql)
-6. [The frontend contract](#4-the-frontend-contract)
-7. [Tests follow the layers](#5-tests-follow-the-layers)
-8. [Verification — the gate](#6-verification--the-gate)
-9. [Security](#7-security)
-10. [Decisions of record](#8-decisions-of-record)
-11. [Git](#9-git)
-12. [The tools](#10-the-tools)
-13. [Incidents](#incidents)
-14. [Known divergences in this template](#known-divergences-in-this-template)
-15. [When you touch code that diverges](#when-you-touch-code-that-diverges)
+Two rules about the file itself. **Delete what does not apply** — a rule for a
+thing this repo does not have competes for attention with the rules that do, and
+occasionally gets applied anyway. **Every rule states the failure it prevents**,
+because a rule with no failure attached gets skimmed. When this repo produces its
+own failure, write it into [Incidents](#incidents).
 
 ---
 
@@ -44,33 +15,27 @@ mechanism it prevents. When this repo produces its own failure, write it into
 
 | Layer | What we use |
 |---|---|
-| API | Django + Django REST Framework, OpenAPI schema via `drf-spectacular` |
+| API | Django + DRF, OpenAPI schema via `drf-spectacular` |
 | Data access | Django ORM + migrations, PostgreSQL. No raw SQL |
 | Frontend data | Generated **hey-api** client (`frontend/src/api/`) + TanStack Query v5 |
 | Frontend routing | TanStack Router, file-tree routes under `src/routes/` |
-| Frontend UI | shadcn/ui (Radix + Tailwind + lucide) in `~/components/ui` |
-| Types | Generated from the OpenAPI schema. Never hand-written, never implicit |
-| Background work | Django-Q2 with the ORM broker — no Redis |
-| Container | Docker Compose; `docker-compose.yml` + `.override.yml` locally, `docker-compose.prod.yml` + nginx on a server |
-| Lint / format | `ruff`, via `pre-commit`. ESLint for the frontend |
-| Ops | `make` → `tools/`, see [The tools](#10-the-tools) |
-
-**No `django-cors-headers` and no DRF throttles, both deliberately.** Vite
-proxies `/api` in development and nginx serves one origin in production, so
-nothing is ever cross-origin — an allow-list would be configuration maintained
-to solve a problem the topology already solved, and its failure mode
-(`CORS_ALLOW_ALL_ORIGINS = True`) is worse than the inconvenience it removes.
-Throttles count in the cache, and the default `LocMemCache` is per-process, so
-N gunicorn workers would silently give N times the configured rate — add a
-shared cache and the throttle together, or neither.
+| Frontend UI | shadcn/ui (Radix + Tailwind) in `~/components/ui` |
+| Types | Generated from the schema. Never hand-written, never implicit |
+| Container | Compose: `docker-compose.yml` + `.override.yml` local, `.prod.yml` + nginx on a server |
+| Lint | `ruff` via `pre-commit`; ESLint for the frontend |
+| Ops | `make` → `tools/`. See [The tools](#10-the-tools) |
 
 **Pin every direct dependency exactly, and bump Django only alongside a DRF
-release that supports it.** An unpinned Django is not a small risk: Django 6.1
-removed `django.utils.cache.cc_delim_re`, which `djangorestframework` still
-imports in `rest_framework/views.py`, so a routine reinstall resolved to 6.1 and
-the application stopped importing entirely — with nothing in the repo changed.
-Put that sentence as a comment at the top of `requirements.txt`, where the
-person editing it will see it.
+release that supports it.** Django 6.1 removed `django.utils.cache.cc_delim_re`,
+which `djangorestframework` still imports, so an unpinned Django meant a routine
+reinstall stopped the application importing at all — with nothing in the repo
+changed.
+
+**No CORS configuration, deliberately.** Vite proxies `/api` in development and
+nginx serves one origin in production, so nothing is ever cross-origin. An
+allow-list would be configuration maintained to solve a problem the topology
+already solved, and its failure mode — `CORS_ALLOW_ALL_ORIGINS = True` — is
+worse than the inconvenience it removes.
 
 ---
 
@@ -79,510 +44,352 @@ person editing it will see it.
 ```
 backend/
   config/                 settings, root urls, wsgi
-  apps/
-    README.md             the blessed-core list, and the rule about arrows
-    core/                 the nouns everything else hangs off
+  apps/README.md          the blessed-core list, and the rule about arrows
+  apps/core/              the nouns everything else hangs off
   entrypoint.sh           production: migrate, collectstatic, gunicorn
-  ruff.toml
 frontend/
   src/api/                GENERATED by hey-api — never hand-edited
   src/routes/             TanStack Router file tree — the filename is the URL
   src/features/<name>/    hooks.ts — the only importer of ~/api
-  src/components/         reusable components
   src/components/ui/      shadcn primitives, added one at a time
   src/queryClient.ts      staleTime / gcTime / retry defaults
-  src/main.tsx            sets the client base URL; see the deviation below
-nginx/                    the production edge: Dockerfile + default.conf
-tools/                    backup, restore, verify, deploy. See tools/README.md
-scripts/                  git hooks
+  src/main.tsx            sets the client base URL (see frontend rule 3)
+nginx/                    the production edge
+tools/                    backup, restore, verify, deploy — see tools/README.md
 Makefile                  the entry point to all of it
 ```
 
 `~` is aliased to `frontend/src/`.
 
 **Deliberately absent until something needs them**: `querysets.py`, `shared/`, a
-second Django app, a second frontend feature. Empty structure is a set of
-predictions about a product nobody has used yet, and predictions made on day one
-are the ones you are least equipped to make. Create the file on the *second*
-use, not in anticipation of one.
+second app, a second frontend feature. Empty structure is a set of predictions
+about a product nobody has used yet. Create the file on the *second* use.
 
 ---
 
 ## 1. Module boundaries
 
-**The standard.** A module is self-contained if deleting it is a migration, not
-an archaeology project. Dependencies point one way: **feature → core, never the
-reverse, never feature ↔ feature.**
+**Dependencies point one way: feature → core, never the reverse, never
+feature ↔ feature.**
 
-**Why it exists.** Modules share a database and a process, so "self-contained"
-cannot mean isolated. What actually decides the cost of deleting a feature is
-the direction of the arrows into it. A single backwards arrow — core importing a
-feature, or two features importing each other — converts a delete from one
-migration into an audit of every call site.
+Apps share a database and a process, so "self-contained" cannot mean isolated.
+What decides the cost of deleting a feature is the direction of the arrows into
+it: one backwards arrow turns a delete from one migration into an audit of every
+call site.
 
-**How it sets the standard here.**
-
-1. Keep an explicit **blessed-core list** in `backend/apps/README.md`: the nouns
-   everything hangs off, and little else. A feature app may FK into core freely.
-   Core never imports from or FKs into a feature.
-2. **A sibling FK is a claim that two features are not independent.** Before
-   adding one, ask whether they are really one app. If it is genuinely needed it
-   is allowed — with a comment on the field naming the dependency and the
-   deletion order it implies (the pointing app dies first).
-3. **`on_delete` is a decision, not a habit.** `PROTECT` across app boundaries;
-   `CASCADE` only *within* an app, where the child is meaningless without the
-   parent. A cross-app `CASCADE` means deleting a row in one feature silently
-   destroys data in another — exactly the web this structure exists to prevent.
-4. **No `GenericForeignKey`.** It trades away the database constraint for
-   flexibility you pay for at deletion time: nothing enforces the target exists,
-   nothing PROTECTs it, nothing shows up when you plan the delete. If a model
-   must point at one of several things, give it a nullable FK per target plus a
-   `CheckConstraint` that exactly one is set.
-5. **Imports follow the FKs.** An app may import from core and from apps it
-   already FKs into, nothing else. If you need a sibling's *behavior* without a
-   data dependency, call a function it deliberately exposes — do not reach into
-   its internals, and do not wire it up with signals. An implicit listener is a
-   dependency nobody can find by grepping; an explicit call is one anybody can.
+1. The **blessed-core list** lives in `backend/apps/README.md` — the nouns
+   everything hangs off, and little else. Core never imports from or FKs into a
+   feature.
+2. **A sibling FK is a claim that two features are not independent.** Ask first
+   whether they are one app. If it is genuinely needed, comment the field with
+   the dependency and the deletion order it implies (the pointing app dies first).
+3. **`on_delete` is a decision.** `PROTECT` across app boundaries; `CASCADE`
+   only *within* an app. A cross-app `CASCADE` means deleting a row in one
+   feature silently destroys data in another.
+4. **No `GenericForeignKey`.** Nothing enforces the target exists, nothing
+   PROTECTs it, nothing appears when you plan the delete. Use a nullable FK per
+   target plus a `CheckConstraint` that exactly one is set.
+5. **Imports follow the FKs.** Need a sibling's behaviour without a data
+   dependency? Call a function it deliberately exposes. No signals — an implicit
+   listener is a dependency nobody can find by grepping.
 
 ---
 
 ## 2. Where logic goes
 
-**The standard.** Put logic where the data lives, and push it as far down as it
-will go. The test is one question: **could I trigger this without an HTTP
-request?** If yes, it does not belong in a view.
+**Push logic as far down as it will go.** The test: *could I trigger this
+without an HTTP request?* If yes, it does not belong in a view.
 
-**Why it exists.** Logic in a view is reachable only through a view. That makes
-it untestable without a request factory, unusable from a management command,
-and unavailable at 2am when you need to reconcile six weeks of bad data. Every
-layer below the view is reachable from a shell.
-
-**How it sets the standard here.** The filename says which layer the code is in.
-Take the highest layer that fits.
+Logic in a view is reachable only through a view — untestable without a request
+factory, unusable from a management command, and unavailable when you need to
+reconcile six weeks of bad data. Everything below the view is reachable from a
+shell. The filename says which layer the code is in; take the highest that fits.
 
 | File | Layer | Holds |
 |---|---|---|
-| `models.py` | 1, 4 | `CheckConstraint`, `UniqueConstraint`, FK `PROTECT`; and methods scoped to one row |
+| `models.py` | 1, 4 | `CheckConstraint`, `UniqueConstraint`, FK `PROTECT`; methods scoped to one row |
 | `domain.py` | 2 | Pure functions. No ORM import, no database in its test |
 | `querysets.py` | 3 | Reusable filters, annotations, `select_related` sets. **Created on the first filter written twice** |
 | `services.py` | 5 | Workflows across models. Owns `transaction.atomic()`. Plain arguments, never `request` |
-| `views.py` | — | Request-shaped only: permission classes, params, serializer choice, status codes, actor attribution |
-| `serializers.py` | — | Wire shape and field-format validation. Cross-field rules go to layers 1–5, not `validate()` |
+| `views.py` | — | Request-shaped only: permissions, params, serializer choice, status codes, actor attribution |
+| `serializers.py` | — | Wire shape and field-format validation. Cross-field rules belong in layers 1–5, not `validate()` |
 | `tasks.py` | — | Scheduling and retry only — a thin call into a service, so the same work runs from a shell |
 
 Layer 1 is the strongest because it is the only one every writer respects. An
-app-layer rule is advisory the moment a second process, a management command, or
-a `psql` session touches the same table.
+app-layer rule is advisory the moment a second process or a `psql` session
+touches the same table.
 
 Each file splits into a package of the same name — `views/<resource>.py` — on
 its **second** resource.
 
 **The actor is a parameter, never ambient.** Pass `request.user.email` down
-explicitly; no thread-locals, no `get_current_user()`. This is the single rule
-that keeps everything below the view runnable from `manage.py shell`, a
-management command, a django-q task, and a test — which is what makes backfills
-and reconciliation possible at all.
+explicitly; no thread-locals, no `get_current_user()`. That single rule is what
+keeps everything below the view runnable from `manage.py shell`, a management
+command, a job, and a test — which is what makes backfills possible at all.
 
 ---
 
 ## 3. No raw SQL
 
-**The standard.** Reads and writes go through the ORM — querysets, aggregates,
+Reads and writes go through the ORM — querysets, aggregates,
 `Subquery`/`OuterRef`, `Window` — never `connection.cursor()`, `.raw()`, or
-`.extra()`.
+`.extra()`. Three mechanisms, none stylistic:
 
-**Why it exists.** Three mechanisms, none of them stylistic.
-
-- **Hand-written SQL hides non-determinism.** `DISTINCT ON` or `ROW_NUMBER()`
-  with a partial `ORDER BY` lets the planner pick which row wins. Nothing
-  errors; the same query returns different rows after a memory-setting change, a
-  new index, or a table crossing a plan threshold. This has happened: a feed
-  used `DISTINCT ON` with a partial order, 940 rows had two child records at the
-  same minute, and lowering `work_mem` — which makes Postgres swap quicksort for
-  an external merge — changed the value displayed for roughly 491 of them. A
-  queryset forces you to name the tiebreaker.
-- **It cannot be composed, filtered, or reused**, so the string gets
-  copy-pasted, and the copies drift.
+- **It hides non-determinism.** `DISTINCT ON` or `ROW_NUMBER()` with a partial
+  `ORDER BY` lets the planner pick which row wins, and nothing errors — the same
+  query returns different rows after an index change or a table crossing a plan
+  threshold. See [Incidents](#incidents).
+- **It cannot be composed or reused**, so the string gets copy-pasted and the
+  copies drift.
 - **It bypasses every guarantee above it** — no field types, no relation
-  traversal, no soft-delete filter, nothing caught before runtime.
+  traversal, nothing caught before runtime.
 
-**How it sets the standard here.** The hard shapes have ORM equivalents, and
-they read better:
+The hard shapes have ORM equivalents, and they read better:
 
 | Instead of | Use |
 |---|---|
-| `DISTINCT ON (x) … ORDER BY x, t DESC` | `Subquery(qs.order_by('-t', '-id').values(f)[:1])` — give it a **total** order |
-| `LEFT JOIN … GROUP BY` on a non-relation pair | a correlated `Subquery` over `.values(a, b).annotate(Sum(...))`, wrapped in `Coalesce` |
+| `DISTINCT ON (x) … ORDER BY x, t DESC` | `Subquery(qs.order_by('-t', '-id').values(f)[:1])` |
+| `LEFT JOIN … GROUP BY` on a non-relation pair | correlated `Subquery` over `.values(a, b).annotate(Sum(...))`, wrapped in `Coalesce` |
 | `UNION ALL` across near-identical tables | read each, unify through one function in `domain.py` |
-| a scalar off an unenforced FK | `Subquery`, not `select_related`/`F('rel__field')` — a join is one plan change from dropping rows the FK does not constrain |
+| a scalar off an unenforced FK | `Subquery`, not `select_related` — a join is one plan change from dropping rows the FK does not constrain |
 
 **Every "latest per group" needs a total order.** A timestamp is not unique; add
 the primary key.
 
-**Top-N per group, then aggregate** is the shape most likely to tempt you. The
-ORM can express it (`Window(RowNumber(), partition_by=…)`, filter the
-annotation), but prefer the split: the database orders, and a pure function in
-`domain.py` takes N and aggregates. The half that is easy to get wrong then
-tests without a database.
+**Top-N per group then aggregate** is the shape most likely to tempt you. Prefer
+the split: the database orders, a pure function in `domain.py` takes N and
+aggregates. The half that is easy to get wrong then tests without a database.
 
-When arithmetic crosses the boundary, **check the rounding**. Postgres
-`round(double precision)` is round-half-to-even (it uses `rint`), unlike
-`round(numeric)`. Python's built-in `round` matches the first; `Decimal(...,
-ROUND_HALF_UP)` matches neither. The disagreement shows up as cents, not as an
-exception.
+When arithmetic crosses the boundary, **check the rounding.** Postgres
+`round(double precision)` is round-half-to-even; `round(numeric)` is not.
+Python's built-in `round` matches the first, `Decimal(..., ROUND_HALF_UP)`
+neither. The disagreement shows up as cents, not as an exception.
 
-`RunSQL` in a migration is fine and sometimes required — multi-column FKs, table
-adoption, DDL Django cannot express. That is schema history, not query code.
+`RunSQL` in a migration is fine. That is schema history, not query code.
 
 ---
 
 ## 4. The frontend contract
 
-**The standard.** The OpenAPI schema is the single source of truth for the
-frontend↔backend contract. Everything below follows from not undermining it.
+The OpenAPI schema is the single source of truth. Codegen only helps while
+nothing routes around it — one hand-written fetch, one hand-authored query key,
+one hand-edited file in `src/api/`, and the schema stops being the contract,
+silently, because all three still compile.
 
-**Why it exists.** Codegen only helps while nothing routes around it. One
-hand-written fetch, one hand-authored query key, one hand-edited file in
-`src/api/`, and the schema stops being the contract — silently, because all
-three still compile.
-
-**How it sets the standard here.**
-
-1. **The generated client in `src/api/` is the only transport.** Reads compose
-   the generated `*Options` factories. Never hand-write a `fetch`/axios call to
-   an endpoint that has a generated operation. `src/api/` is generated output:
-   never hand-edited, regenerated by `make api`.
+1. **The generated client is the only transport.** Reads compose the generated
+   `*Options` factories. `src/api/` is generated output: never hand-edited,
+   regenerated by `make api`.
 
 2. **The generated `*QueryKey` functions are the key factory.** The hand-rolled
-   key-factory pattern you will see recommended everywhere solves a problem we do
-   not have — it exists to stop *hand-written* keys from drifting apart, and
-   codegen already gives us canonical keys. A parallel factory would duplicate
-   them and reintroduce the drift. Add only a naming layer:
+   key-factory pattern exists to stop *hand-written* keys drifting; codegen
+   already gives canonical keys, so a parallel factory would reintroduce the
+   drift. Add only a naming layer:
 
    ```ts
    const postsListKey = () => postsListQueryKey({ query: {} })
    ```
 
-   `<domainNoun><Shape>Key`: `postsListKey()` for a collection, `postDetailKey(id)`
-   for a row, plain `<noun>Key` when the operation has one shape. The noun is the
-   domain term used in the UI, not the endpoint path. One alias maps 1:1 to one
-   operation. Always a function, even with zero arguments. The body is one
-   expression — if an alias needs logic, that logic belongs in the params it
-   passes.
+   `<domainNoun><Shape>Key`, 1:1 with one operation, always a function, body is
+   one expression. Aliases live in the feature's `hooks.ts`; reads pass them to
+   `queryKey` and mutations pass the *same* alias to `invalidateQueries`.
+   **Why this matters more than it looks:** hey-api keys are
+   `[{ _id, baseUrl, ...params }]`, compared structurally, so a key that does not
+   match makes `invalidateQueries` a **silent no-op**. The read stays stale and
+   nothing errors.
 
-   Aliases live in the feature's `hooks.ts` and are used by both sides: reads
-   pass them to `queryKey`, mutations pass the *same* alias to
-   `invalidateQueries`. **Why this one matters more than it looks:** hey-api keys
-   are `[{ _id, baseUrl, ...params }]` and are compared structurally, so a
-   hand-authored key that does not match makes `invalidateQueries` a **silent
-   no-op**. The read stays stale and nothing errors.
-
-3. **One `hooks.ts` per feature is the only importer of `~/api`.** Components
-   import the feature hook, so codegen churn lands on one file per feature
-   instead of forty.
-
-   One documented exception: `src/main.tsx` imports `~/api/client.gen` to call
-   `setConfig` at boot. That is client *configuration*, not transport — and it
-   is load-bearing, because codegen bakes in the `baseUrl` it introspected the
-   schema from, which is a localhost address belonging to whoever last ran
-   `make migrate`. Overriding it there is what keeps that port out of the
-   production bundle.
+3. **One `hooks.ts` per feature is the only importer of `~/api`**, so codegen
+   churn lands on one file per feature instead of forty. One exception:
+   `src/main.tsx` imports `client.gen` to call `setConfig` at boot. That is
+   configuration, not transport, and it is load-bearing — codegen bakes in the
+   `baseUrl` it introspected from, a localhost address belonging to whoever last
+   ran `make migrate`, and overriding it there keeps that port out of the bundle.
 
 4. **Feature-relative imports only.** `shared/` is reachable from a feature;
    sibling features are not. Something moves to `shared/` on its **second**
-   consumer, not in anticipation of one.
+   consumer.
 
 5. **`src/queryClient.ts` owns `staleTime`/`gcTime`/`retry`.** A per-hook
    override needs a one-line comment saying why.
 
-6. **A mutation enumerates every resource it affects** and invalidates each by
-   its alias. Generated keys share no prefix across operations, so there is no
-   "invalidate the whole feature" key — the feature's hooks file owns the list
-   explicitly. Reach for `setQueryData` and optimistic updates only where the
-   latency is actually visible.
+6. **A mutation enumerates every resource it affects.** Generated keys share no
+   prefix across operations, so there is no "invalidate the whole feature" key.
 
-7. **Server state lives in the query cache.** Never mirror it into `useState` or
-   a store. Local state is for in-flight edit drafts and pure UI.
-
-`make check` regenerates the client and fails on a diff, because a stale
-committed client is the one failure codegen cannot catch by itself: the types
-compile, they just describe an API that no longer exists.
+7. **Server state lives in the query cache.** Never mirrored into `useState`.
+   Local state is for in-flight edit drafts and pure UI.
 
 ---
 
 ## 5. Tests follow the layers
 
-**The standard.** Test each layer the way that layer is reachable.
-
-**Why it exists.** The architecture above is justified by testability, so the
-test is the thing that tells you whether the placement was right. **If a test
-needs a running server or a request factory to reach the logic, the logic is too
-high.** That is the signal to move it down, not to build more test scaffolding.
-
-**How it sets the standard here.**
+The architecture is justified by testability, so the test tells you whether the
+placement was right. **If a test needs a running server or a request factory to
+reach the logic, the logic is too high** — move it down rather than building more
+scaffolding.
 
 | Layer | The test looks like |
 |---|---|
-| Constraint | One case proving the violation is rejected — at the database, not through the API |
-| Pure function | A table of inputs and expected outputs. No fixtures, no I/O, milliseconds |
-| QuerySet | The smallest fixture set that distinguishes it. Where ordering matters, assert it is *total* — seed a tie and pin the winner |
+| Constraint | One case proving the violation is rejected, at the database |
+| Pure function | A table of inputs and outputs. No fixtures, no I/O, milliseconds |
+| QuerySet | The smallest fixture set that distinguishes it. Where ordering matters, seed a tie and pin the winner |
 | Model method | One row, no setup beyond it |
 | Service | The workflow's effects, plus the transaction boundary: a partial failure leaves nothing behind |
-| View | Status codes, authorization, serialization. Not business rules — those are tested below |
+| View | Status codes, authorization, serialization. Not business rules |
 
 ---
 
-## 6. Verification — the gate
+## 6. The gate
 
-**The standard.** `make check` passes before every push. It runs, cheapest
-first: `manage.py check`, `makemigrations --check`, `tsc --noEmit`, a regenerate
--and-diff of the API client, the test suite, and a build of the production
+**`make check` passes before every push.** It runs, cheapest first:
+`manage.py check`, `makemigrations --check`, `tsc --noEmit`, a
+regenerate-and-diff of the API client, the tests, and a build of the production
 images.
 
-**Why it exists.** There is no image registry, so production images compile **on
-the production box**, during `up -d --build`, *after* the pre-deploy backup and
-*after* the checkout has moved to the new tag. A type error is therefore not a
-dev-box failure — it is a mid-deploy failure with the stack down and the old
-image gone. Building the same images locally first turns it back into a dev-box
-failure.
+The last one is why the script exists. There is no image registry, so production
+images compile **on the server**, after the pre-deploy backup and after the
+checkout has moved to the new tag. A type error is not a dev-box failure — it is
+a mid-deploy failure with the stack down. Building the same images locally first
+turns it back into a dev-box failure.
 
-Two gates deserve their own sentence:
+Two gates deserve their own sentence. **`makemigrations --check`** catches a
+model edited without its migration, which otherwise deploys cleanly, runs
+`migrate`, and then serves against a schema that does not match — you find out
+from a 500 on a missing column. **The client diff** regenerates *before*
+comparing, so it catches an API change that was never regenerated; note that
+`git diff` sees only tracked files, so it is inert until `src/api/` is committed
+once.
 
-- **`makemigrations --check`** catches a model edited without its migration.
-  Without it, that deploys cleanly, runs `migrate`, and then serves against a
-  schema that does not match the ORM. You find out from a 500 on a missing
-  column.
-- **The client diff** regenerates *before* comparing, so hand-editing
-  `src/api/` proves nothing. It catches an API change that was never
-  regenerated. Note that `git diff` sees only tracked files, so it is inert
-  until `src/api/` has been committed once.
+`.github/workflows/check.yml` runs **the same command**. A CI job with its own
+list of steps starts as a copy of the gate and ends as a weaker one.
 
-**How it sets the standard here.** Run `make check` before every push.
-`.github/workflows/check.yml` runs **the same command** — one definition of
-"verified", not two that drift. A CI job with its own hand-written list of
-steps starts as a copy of the gate and ends as a different, usually weaker one.
-
-`pre-commit` (installed once with `make hooks`) is the layer below: formatting,
-`ruff`, a private-key detector, and a `commit-msg` hook that rejects AI
-attribution trailers. It is deliberately cheap — it starts no container and
-touches no database — so it can run on every commit without anyone wanting to
-skip it. It is not the gate.
+`pre-commit` (`make hooks`) is the cheap layer below: formatting, `ruff`, a
+private-key detector, and a `commit-msg` hook rejecting AI attribution trailers.
+It starts no container and touches no database, so nobody wants to skip it. It is
+not the gate.
 
 ---
 
 ## 7. Security
 
-**The one principle:** *never trust the client, and fail closed.* A missing
-config, an unrecognized token, an unknown host, a forgotten permission class —
-every one must end in "denied", never "allowed".
+**Never trust the client, and fail closed.** A missing config, an unrecognized
+token, an unknown host, a forgotten permission class — every one ends in
+"denied".
 
-Each rule below is a class of bug that has actually shipped somewhere. They are
-hard requirements, not preferences.
+### SQL
 
-### SQL — user input is DATA, never SQL text
+1. **Every value goes through a bound parameter.** The ORM does this; anywhere
+   you drop to a driver, use positional parameters, including for
+   numeric-looking ids.
+2. **A column or table name cannot be a bound parameter — allow-list it.**
+   `SET ${key} = ${value}` with both from the request is the worst version, and
+   it is not rare.
+3. **Second-order counts.** A value read back from the database and spliced into
+   a new query is still injectable if a user could have written it.
+4. **Never return the raw error to the client.** Database error text turns any of
+   the above into a read primitive and leaks the schema.
 
-1. **Every value goes through a bound parameter.** With the ORM this is
-   automatic; see [No raw SQL](#3-no-raw-sql). Anywhere you must drop to a
-   driver, use positional parameters and never string interpolation — including
-   for numeric-looking ids and values you "know" are safe.
-2. **A column or table name cannot be a bound parameter — so allow-list it.** If
-   a caller supplies a column to sort or update by, validate it against a fixed
-   set. `SET ${key} = ${value}` with both from the request is the worst version
-   of this and it is not rare.
-3. **Second-order counts too.** A value read back from the database and spliced
-   into a new query is still injectable if a user could have written it.
-4. **A handler must not return the raw error to the client.** Database error
-   text turns any of the above into an error-based read primitive and leaks the
-   schema. Log server-side; return something generic.
+### Secrets
 
-### Secrets — the environment or the database, never the repo, never the bundle
-
-1. **No secret in git, ever.** Git history is permanent: deleting a leaked
-   credential is not enough, it must be **rotated**. Before adding a file that
-   could hold one, confirm `.gitignore` **and** `.dockerignore` cover its exact
-   name — a leaked service-account file once matched neither of two patterns
-   that were both supposed to catch it.
+1. **No secret in git, ever.** History is permanent: the remedy is **rotation**,
+   not a follow-up commit. Check `.gitignore` **and** the right `.dockerignore` —
+   Docker reads the one next to the *context root*, so a file excluded only at
+   the repo root still lands in a layer.
 2. **Env defaults fail closed.** `os.getenv('DB_PASSWORD', 'password')` and
-   `ALLOWED_HOSTS = ['*']` are footguns: a missing variable must break loudly or
-   deny, never silently choose the weak option. Permissive only when `DEBUG`,
-   otherwise empty. An unset shared secret must never authenticate — guard
-   comparisons with `if (SECRET && presented === SECRET)`, because
-   `undefined === undefined` was a live auth bypass.
-3. **Only `VITE_*` reaches the browser.** Do not add `define: { 'process.env': … }`
-   to `vite.config.ts` — it inlines the whole build environment into the public
-   bundle. Never put a secret in a `VITE_` variable: everything so prefixed ships
-   to every visitor. A browser Maps key is inherently public; restrict it in the
-   provider console rather than pretending it is a secret.
-4. **Machine credentials belong in the database, not in env vars.** Inbound
-   tokens the app issues are stored hashed with an indexed public prefix, shown
-   once, named, scoped, revocable and expiring. Outbound credentials other
-   systems issued *to* you are stored encrypted with the base URL they belong
-   to, because you have to replay them verbatim. Route every caller through one
-   accessor, so rotating a credential is one edit rather than a grep.
-5. **Never log a credential.** No `print`/`console.log` of tokens, passwords or
-   raw request bodies — container logs are readable and the browser console
-   persists. Compare secrets with `hmac.compare_digest` /
-   `crypto.timingSafeEqual`, not `==`.
+   `ALLOWED_HOSTS = ['*']` are footguns. A missing variable must break loudly or
+   deny. An unset shared secret must never authenticate — guard comparisons with
+   `if (SECRET && presented === SECRET)`, because `undefined === undefined` was a
+   live auth bypass.
+3. **Only `VITE_*` reaches the browser**, and everything so prefixed ships to
+   every visitor. Never add `define: { 'process.env': … }` to `vite.config.ts` —
+   it inlines the whole build environment into the public bundle.
+4. **Never log a credential.** Container logs are readable and the browser
+   console persists. Compare secrets with `hmac.compare_digest`, not `==`.
 
-### Output — a value from the database is not HTML
+### Output
 
 1. **Never `dangerouslySetInnerHTML` with anything but a trusted constant.**
-   React auto-escapes `{value}`. Free-text fields are the stored-XSS vector, and
-   if a token lives in `localStorage` then an XSS is an account takeover.
-2. **Server-supplied URLs bound to `href`/`src` must be scheme-checked**
-   (`http(s):`/`mailto:`/`tel:`). React does not block `javascript:`.
+   React auto-escapes `{value}`. Free-text fields are the stored-XSS vector.
+2. **Scheme-check server-supplied URLs** bound to `href`/`src`. React does not
+   block `javascript:`.
 
-### Files — a filename from the request is attacker-controlled
+### Files
 
-1. **`basename` every path segment that comes from a URL, body or database
-   before joining it to a directory.** `os.path.join` *resolves* `../`, so an
-   encoded traversal escapes the intended directory — arbitrary read, write or
-   delete, and because these servers run from source, arbitrary write is remote
-   code execution. Uploads, download names and delete targets all count.
+1. **`basename` every path segment that comes from a request.** `os.path.join`
+   *resolves* `../`, so an encoded traversal escapes the intended directory — and
+   because these servers run from source, arbitrary write is RCE.
 2. **Allow-list the extension and cap the size.** Serve with a content type
-   derived from the extension, never guessed, and
-   `Content-Disposition: attachment` for anything off the list. A stored
-   `.html`/`.svg` served as `text/html` is stored XSS even from an authenticated
-   endpoint.
+   derived from the extension, never guessed. A stored `.html`/`.svg` served as
+   `text/html` is stored XSS even from an authenticated endpoint.
 
-### Auth, permissions, egress, ingress
+### Auth and network
 
-1. **Verify tokens fully and pin the algorithm.** Check the signature *and*
-   `aud`/issuer/expiry; pin `algorithms=['RS256']` — never trust `alg` from the
-   token header. A signature-valid token minted for another application is kept
-   out only by the `aud` check. Derive identity from the token the middleware
-   **verified**, never by re-decoding a raw header.
-2. **Permissions fail closed.** Set `DEFAULT_PERMISSION_CLASSES` to
-   `IsAuthenticated`, so a new view is denied until it says otherwise and a
-   genuinely public one opts out with an explicit `[AllowAny]`. A route guard in
+1. **Permissions fail closed.** `DEFAULT_PERMISSION_CLASSES` is
+   `IsAuthenticated`, so a new view is denied until it says otherwise;
+   `/api/health/` is the one endpoint that opts out, explicitly. A route guard in
    the SPA is a UI convenience, not a boundary.
-3. **Egress is host-allow-listed at write time AND at connect time.** Anything
-   that fetches a URL influenced by config or user input goes through a fixed
-   base. Refuse link-local and metadata IPs on the live request, not only on
-   save. Never `verify=False` / `rejectUnauthorized: false`.
-4. **CORS is an allow-list.** Never `origin: true` with `credentials: true`,
-   never `CORS_ALLOW_ALL_ORIGINS` outside local dev. Security headers belong at
-   the edge; a CSP must be built and tested against the running app, not added
-   blind.
-5. **Ports bind to loopback unless they are meant to be public.** Postgres, a
-   `DEBUG` server, and log viewers with access to the docker socket all bind
-   `127.0.0.1:` in compose; a host proxy reaches them over loopback.
+2. **If you add token auth, verify fully and pin the algorithm** — signature
+   *and* `aud`/issuer/expiry, `algorithms=[...]` never taken from the token
+   header. A signature-valid token minted for another application is kept out
+   only by the `aud` check.
+3. **Egress is host-allow-listed at write time AND connect time**, refusing
+   link-local and metadata IPs on the live request. Never `verify=False`.
+4. **Ports bind to loopback unless meant to be public.** Postgres, a `DEBUG`
+   server, and anything holding the docker socket all bind `127.0.0.1:`.
 
 ---
 
 ## 8. Decisions of record
 
-The day-one answers. Each is here because changing it later is expensive, not
-because it is interesting. **Delete the ones that do not apply and write down
-yours.**
+The day-one answers. Each is here because changing it later is expensive.
 
-### Identity and authorization
+**Primary keys.** `BigAutoField` internally. Anything that leaves the system also
+gets a `UUIDField(unique=True)`, and that is what appears in responses and URLs —
+callers persist the id you hand back, which makes it permanent. A bigint leaks
+volume and is enumerable; a UUID costs one column now and cannot be retrofitted
+once anyone has stored one.
 
-Decide two things separately: how a **human** authenticates, and how a
-**machine** does.
+**Time.** UTC everywhere, converted only at the display boundary. `created_at`
+and `updated_at` on every table from the first migration (`TimeStampedModel`). A
+schedule that means a wall-clock time stores an IANA timezone next to the
+expression, or it shifts twice a year.
 
-For humans, OAuth against your identity provider. Two points that are easy to
-get wrong: the `hd` (hosted domain) OAuth parameter is a **hint to the provider,
-not a control** — a caller can hand-edit it out of the authorize URL, so the
-domain check has to run in your adapter, on *every* login rather than on signup
-only. And if you use `django-allauth`, `SOCIALACCOUNT_ONLY = True` matters:
-without it a `createsuperuser` account can sign in with a password and skip the
-social check entirely.
+**Soft delete: no.** Records are append-only, so `.alive()` exists nowhere.
+Deactivate rather than delete, and use `PROTECT` so history survives a retired
+parent. If that changes, `.alive()` goes on a manager and becomes the default *in
+the same commit* — bolted on later, half the code has already forgotten it. Make
+the flag `NOT NULL`: on a nullable column `filter(is_deleted=False)` and
+`exclude(is_deleted=True)` are different queries, and the first hides every row
+whose flag was never set.
 
-For machines, one hashed bearer token per caller. Show the raw token once, store
-only the hash, compare with `hmac.compare_digest`. On success set `request.auth`
-and leave `request.user` anonymous, so a view can never mistake a machine for a
-person.
+**Pagination.** Cursor, page size 50, ordered `(-created_at, -pk)`
+(`apps/core/pagination.py`). The primary key is in the ordering because
+`created_at` is not unique, and a cursor over a partial order can skip or repeat
+rows. Offset is not used: deep offsets scan, and page boundaries move under a
+user while rows arrive.
 
-Authorization is decided by permission classes in `permissions.py`. Views do not
-hand-roll role checks.
+**Migrations: expand/contract.** Add nullable, backfill, require it in a later
+deploy. Never a single migration adding a non-nullable column to a populated
+table.
 
-### Primary keys
+**Config.** `.env` is git-ignored; `.env.template` is committed with every key
+and no value. `config/settings.py` is the one entry point, and it refuses to boot
+without a `SECRET_KEY` when `DEBUG` is off, or with `DEBUG` on alongside a
+routable `DJANGO_ALLOWED_HOSTS`.
 
-Internal PK is `BigAutoField`. **Any identifier that leaves the system also gets
-a `UUIDField(unique=True)`**, and that is what appears in API responses and URLs.
-
-Why both: external callers persist the id you hand back, which makes it
-permanent. A bigint leaks volume and is enumerable; a UUID costs one column now
-and is impossible to retrofit once anyone has stored one.
-
-### Time
-
-UTC everywhere. `USE_TZ = True`, `TIME_ZONE = 'UTC'`, converted only at the
-display boundary. `created_at` and `updated_at` on every table from the first
-migration.
-
-**A cron schedule stores an IANA timezone next to the expression.** "Every day at
-9am" means 9am *somewhere*, and it has to survive daylight saving; storing only
-UTC silently shifts every schedule twice a year.
-
-### Soft delete
-
-Default: **no**. Records are append-only, so there is no `.alive()` filter
-anywhere. Deactivate (`is_active = False`) rather than delete, and use `PROTECT`
-so history stays meaningful after a parent is retired.
-
-If that changes, `.alive()` goes on a manager in `querysets.py` and becomes the
-default **in the same commit** — bolted on later, half the code has already
-forgotten it. And make the flag `NOT NULL`: on a nullable column
-`filter(is_deleted=False)` and `exclude(is_deleted=True)` are *different*
-queries, and the first one hides every row whose flag was never set.
-
-### Pagination
-
-Every list endpoint is paginated from the first one. **Cursor pagination**,
-default page size 50, ordered by `(-created_at, -public_id)`.
-
-The primary key is in the ordering because `created_at` is not unique, and a
-partial order lets the plan pick which row wins — the same defect as
-[No raw SQL](#3-no-raw-sql), one layer up. Offset pagination is not used: deep
-offsets scan, and when rows arrive constantly a user paging a list sees rows
-shift under them.
-
-### Migrations — expand/contract
-
-Add nullable, backfill, require it in a later deploy. Never a single migration
-adding a non-nullable column to a populated table.
-
-### Config and secrets
-
-`.env` is git-ignored; `.env.template` is committed with every key present and
-no real value. One settings entry point reading `os.environ`. Settings refuses
-to boot with an insecure default `SECRET_KEY` when `DEBUG` is off.
-
-### Errors and logs
-
-Structured logging to the console. Every request carries a correlation id,
-logged with every line it produces and returned in a response header, so one
-request is traceable end to end. Expected failures — a duplicate, an unknown
-token, a malformed payload — are 4xx and are not paged on. Anything 5xx is a bug.
-
-### Background work
-
-**Django-Q2 with the ORM broker**, so the queue is Postgres and there is one
-fewer service to operate. Land the package, `Q_CLUSTER` and the worker container
-together with the first real task, not before.
-
-- **`'poll'` is not the default.** The ORM broker has no push channel: the
-  worker asks the database "any tasks?" on a fixed interval, and at the default
-  that busy-poll pinned a worker at roughly 150% CPU while doing no work.
-  Nothing errored — it quietly burned a core. Pick the ORM broker and you own
-  the poll interval.
-- **`'sync': True` in tests**, so a task runs inline and no test needs a live
-  worker.
-- **A separate `qcluster` container**, never a thread inside gunicorn.
-- **Schedules are registered by an idempotent management command** run at
-  deploy, so the schedule set is code and re-running it is safe.
-- **Give the worker its own database login with a `CONNECTION LIMIT`** —
-  `make worker-role`. See the [Incidents](#incidents) entry; without it, a leak
-  in a background task can take the whole application down.
+**Not built yet**, named so nobody assumes otherwise: there is **no
+authentication** beyond Django sessions and the admin, **no background worker**,
+and **no request correlation id**. Decide each when you need it and write the
+decision here. Two constraints worth knowing in advance — if you pick Django-Q2's
+ORM broker you own the `poll` interval (see [Incidents](#incidents)), and the
+worker gets its own database login with a `CONNECTION LIMIT`
+(`make worker-role`) before it ships, not after.
 
 ---
 
 ## 9. Git
 
-**Commit messages are short and factual.** A subject line saying what was done,
-then a few lines covering what it touched and what that affects.
+**Commit messages are short and factual**: a subject line saying what was done,
+then what it touched and what that affects. If a change affects nothing outside
+its own file, say so in the subject line alone and stop.
 
 ```
 Reject duplicate posts inside the source's dedupe window
@@ -592,183 +399,112 @@ services.ingest_post. Intake now answers 200 with the existing public_id
 instead of 201 — sending repos need no error handling for it.
 ```
 
-Three things a reader needs: **what was done**, **what it touched**, **what it
-affects**. If a change affects nothing outside its own file, say so in the
-subject line alone and stop.
-
-**No AI trailers.** No `Co-Authored-By: <tool>`, no `Generated with …`, no tool
-attribution of any kind. The commit author is whoever ran the commit; a trailer
-naming a tool adds nothing a reader can act on and dilutes `git log --author`.
-Enforce it with a `commit-msg` hook so it is not a review conversation.
+**No AI trailers.** No `Co-Authored-By: <tool>`, no `Generated with …`. The
+author is whoever ran the commit; a trailer naming a tool adds nothing a reader
+can act on and dilutes `git log --author`. The `commit-msg` hook enforces it.
 
 ---
 
 ## 10. The tools
 
-**The standard.** Every operational action — backup, restore, refresh, verify,
-deploy, upgrade — is a script in `tools/`, reachable through `make`, taking
-`--target local|prod|test`. `tools/project.env` is the only file you edit to
-point them at a new project.
+Every operational action is a script in `tools/`, reachable through `make`,
+taking `--target local|prod|test`. `tools/project.env` is the only file you edit
+to point them at a new project. Full detail in
+[`tools/README.md`](tools/README.md).
 
-**Why it exists.** These operations are rare, dangerous, and done under
-pressure. A runbook is a set of steps someone will skip at 3am; a script is the
-steps plus the guards, and the guards are the whole point — verify the archive
-*before* dropping the database, take a safety dump *before* the restore, run the
-gate *before* the version bump, restart *exactly* the services you stopped. Each
-guard exists because its absence cost someone a database or an evening.
+These operations are rare, dangerous, and done under pressure. A runbook is a set
+of steps someone skips at 3am; a script is the steps plus the guards, and the
+guards are the point.
 
-**How it sets the standard here.** Full detail is in
-[`tools/README.md`](tools/README.md); this is the map.
-
-```bash
-make                 # list every target
-```
-
-| Command | What it does | The guard that matters |
+| Command | Does | The guard that matters |
 |---|---|---|
 | `make up` / `logs` / `ps` | run the local stack | — |
-| `make down` / `restart` | stop or restart it | backs up first |
-| `make check` | **the gate** — run before every push | see [Verification](#6-verification--the-gate) |
-| `make migrate` | makemigrations + migrate + regenerate the client | does both halves, so the client cannot silently drift |
+| `make down` / `restart` | stop or restart | backs up first |
+| `make check` | **the gate** | see [The gate](#6-the-gate) |
+| `make migrate` | migrations + regenerate the client | does both halves, so the client cannot silently drift |
 | `make backup` / `backup-prod` | verified archive | `pg_restore --list` on the target; a dump nothing has read is not a backup |
 | `make backups` / `restore` | list, restore | re-checksums, refuses a downgrade, safety-dumps first, restarts exactly what it stopped |
-| `make db-monitor` | are the backups working? | non-zero exit is the alertable signal; a cron job that stopped looks like one with no problems |
-| `make db-selftest-full` | backup → restore → compare | into a **throwaway** database; an untested backup is a hypothesis |
+| `make db-monitor` | are backups working? | non-zero exit is the alertable signal — a cron job that stopped looks like one with no problems |
+| `make db-selftest-full` | backup → restore → compare | into a throwaway database; an untested backup is a hypothesis |
 | `make db-refresh` | production's data → local | compares major versions *before* dropping anything |
 | `make deploy-prod` | verify, tag, back up, ship, health-check | the pre-deploy backup is a hard gate — a migration is the one deploy `git revert` cannot undo |
-| `make rollback` | previous tag | tells you, loudly, that code rollback does not roll back a migration |
+| `make rollback` | previous tag | says, loudly, that a code rollback does not roll back a migration |
 | `make pg-upgrade` | local Postgres major bump | verified archive first, loud confirm before `docker volume rm` |
 | `make worker-role` | the worker's capped DB login | see [Incidents](#incidents) |
 
-`docker-compose.prod.yml` ships, so `make check` builds the real production
-images and `make deploy-prod` works once `PROD_SSH` in `tools/project.env`
-names a reachable host. If you delete or rename that compose file, every
-remote-target script refuses to run rather than guessing at a topology — that
-refusal is a feature, not a gap.
+`PROD_SSH`/`TEST_SSH` in `project.env` are ssh **aliases** from `~/.ssh/config`,
+not hostnames — that is where the key, user and port live, and cron has no
+ssh-agent to fall back on. Delete `docker-compose.prod.yml` and every
+remote-target script refuses to run rather than guessing at a topology.
 
 ---
 
 ## Incidents
 
-The scars. One paragraph each: what broke, the mechanism, which rule now
-prevents it. These are the highest-value lines in this file — a rule with a body
-count gets followed.
+The scars: what broke, the mechanism, the rule that now prevents it. The
+highest-value lines in this file — a rule with a body count gets followed. These
+are **inherited** from sibling repos; the mechanism is portable, the code is not.
+Add this repo's own above the line, and delete an inherited one when it stops
+being relevant.
 
-The entries below are **inherited**: they happened in sibling repos, and they
-are here because the mechanism is portable, not the code. Add this repo's own
-above the line at the bottom, and delete an inherited one when it stops being
-relevant.
+**An unpinned Django broke every DRF import.** Django 6.1 removed
+`django.utils.cache.cc_delim_re`, which `djangorestframework` still imports, so a
+routine reinstall resolved to 6.1 and the application stopped importing entirely
+— nothing in the repo had changed. **Pin every direct dependency exactly, and
+bump Django only alongside a DRF release that supports it.**
 
-**An unpinned Django broke every DRF import.** `requirements.txt` listed Django
-with no exact pin. Django 6.1 removed `django.utils.cache.cc_delim_re`, which
-`djangorestframework` still imports in `rest_framework/views.py`, so a routine
-reinstall resolved to 6.1 and the application stopped importing entirely —
-nothing in the repo had changed. **The rule: pin every direct dependency
-exactly, and bump Django only alongside a DRF release that supports it.**
+**Raw SQL hid a real defect.** A feed used `DISTINCT ON` with a partial
+`ORDER BY`. 940 records had two children logged at the same minute, and lowering
+`work_mem` — which makes Postgres swap quicksort for an external merge — changed
+the value shown for ~491 of them. Nothing errored; the number simply depended on
+server configuration. **No raw SQL, and every latest-per-group needs a total
+order.** It is also why pagination orders by `(-created_at, -pk)`.
 
-**Raw SQL hid a real defect.** A hand-written feed used `DISTINCT ON` with a
-partial `ORDER BY`, which lets the planner choose which row wins. 940 records
-had two children logged at the same minute; dropping `work_mem` so Postgres
-swaps quicksort for an external merge changed the value shown for ~491 of them.
-Nothing errored — the number was simply different depending on server
-configuration. **The rule: no raw SQL, and every latest-per-group needs a total
-order — a timestamp is not unique, add the primary key.** This is also why
-pagination orders by `(-created_at, -public_id)` rather than `created_at` alone.
+**A background worker exhausted the connection pool and took the site down, and
+the watchdog turned that into a loop.** The worker leaked a connection per task —
+threads that touch the ORM get their own, and Django closes them only at task
+boundaries, never at thread exit — until it held all 100 of `max_connections` and
+the API could not connect to a healthy database. Every writer shared one
+unlimited role, so nothing could express *"a worker may not use every
+connection."* Meanwhile an untracked health-check script answered every 502 with
+`compose down` + `restart postgresql` + `up -d --build`: it destroyed the
+evidence, restarted the database under every healthy client, and started the
+leaking worker again, every 15 minutes, fixing nothing. **The worker gets its own
+login with a `CONNECTION LIMIT`, so a leak fails one container loudly. And a
+watchdog diagnoses before acting, acts narrowly, never restarts the database,
+never rebuilds, has a cooldown, and runs the file in the checkout — never a copy
+in a home directory.**
 
-**The Django-Q2 ORM broker's poll interval.** The ORM broker has no push
-channel: the worker asks the database "any tasks?" on a fixed interval, and at
-the default that busy-poll pinned a worker at roughly 150% CPU while doing no
-work. Nothing errored — it quietly burned a core. The fix was one line. **The
-rule: pick the ORM broker, you own the poll interval — never take the default.**
+**Django-Q2's ORM broker has no push channel.** The worker asks the database "any
+tasks?" on a fixed interval, and at the default that busy-poll pinned a worker at
+~150% CPU doing no work. Nothing errored; it quietly burned a core. **Pick the
+ORM broker, you own the poll interval.**
 
-**A background worker exhausted the database's connections and took the site
-down.** A worker leaked a Postgres connection per task: threads that touch the
-ORM get their own connection, and Django closes connections only at
-request/task boundaries, never at thread exit. It reached all 100 of
-`max_connections`, at which point the API and `psql` itself could not connect to
-a database that was otherwise healthy. Every writer shared one unlimited role,
-so nothing in the system could express "a worker may not use every connection."
-**The rule: the worker gets its own login with a `CONNECTION LIMIT`
-(`make worker-role`), so a leak fails background tasks in one container instead
-of the whole application.**
+**`DB_PASSWORD` is inert after the first boot.** A stack failed with `password
+authentication failed` while the database was healthy and `.env` was correct.
+Postgres applies `POSTGRES_PASSWORD` only when it initialises an *empty* data
+directory, and the volume already existed from an earlier run. Nothing in the
+error mentions the volume. **Rotating the password means `ALTER USER` inside
+Postgres, not an edit to `.env`.**
 
-**The watchdog turned one leaking container into a repeating outage.** During
-that same incident, an untracked health-check script responded to *any* 502 with
-`compose down` + `systemctl restart postgresql` + `up -d --build`. That
-destroyed the evidence, restarted the database under every healthy client,
-rebuilt every image, and started the leaking worker again — refilling all 100
-slots in about four minutes, every 15 minutes, without ever fixing anything.
-**The rule: a watchdog diagnoses before acting, acts narrowly, never restarts
-the database, never rebuilds, and has a cooldown — and its `ExecStart` points at
-the file in the checkout, never a copy in a home directory.**
+**A dev stack on a routable host served the traceback page publicly.** The
+checkout was on a machine a DNS record pointed at, so `compose up` with
+`DEBUG=True` was not a local sandbox. The debug page renders every setting and
+the request's cookies, including a signed-in user's email. **Settings now refuse
+to boot with `DEBUG` on alongside a routable `ALLOWED_HOSTS`.**
 
-**`DB_PASSWORD` is inert after the first boot.** A production stack failed with
-`password authentication failed` while the database was healthy and the
-credentials in `.env` were correct. Postgres applies `POSTGRES_PASSWORD` only
-when it initialises an *empty* data directory; the volume already existed from
-an earlier run with a different password, so the variable was simply ignored.
-Nothing in the error mentions the volume. **The rule: rotating the database
-password means `ALTER USER` inside Postgres, not an edit to `.env` — editing
-`.env` alone changes what the backend presents and not what the database
-expects.**
+**Two compose files in one directory share a volume.** Both derive the same
+project name, so both resolved `postgres_data` to the same volume — which is how
+a production stack was handed a database a dev run created. **Pass `-p` when you
+need them separate; never assume two compose files in one directory are
+isolated.**
 
-**Dev and prod compose files shared one volume.** Two compose files in the same
-directory derive the same project name, so both resolved `postgres_data` to the
-same volume — which is how a production stack was handed a database a dev run
-had created. **The rule: pass `-p` when you need them genuinely separate, and
-never assume two compose files in one directory are isolated.**
-
-**Port 8000 was not ours to take.** A dev compose file published the backend on
-`8000` and `docker compose up` failed with `port is already allocated` — another
-service on the same box held it. Any host port is a shared resource, and the
-obvious default is the most likely to be taken. **The rule: pick a port pair for
-this project, use it everywhere (dev, prod, `runserver`), and check
-`docker ps --format '{{.Ports}}'` before claiming a new one.** Inside the compose
-network services still reach each other on the container port; only the host-side
-binding moves.
-
-**A dev stack on a routable host served Django's traceback page publicly.** The
-checkout was on a machine that a DNS record pointed at, so `docker compose -f
-docker-compose.dev.yaml up` was not a local sandbox — it published to a routable
-hostname with `DEBUG=True`. The debug page renders every setting and the
-request's cookies, including a signed-in user's email and a session cookie set
-on the parent domain. **The rule: settings refuse to boot with `DEBUG` on
-alongside a routable `ALLOWED_HOSTS`, and a dev compose file is for a machine
-nothing points a DNS record at.**
+**Port 8000 was not ours to take.** A compose file published the backend on 8000
+and `up` failed with `port is already allocated` — another service on the box
+held it. **Any host port is a shared resource, and the obvious default is the
+most likely to be taken. Check `docker ps --format '{{.Ports}}'` first.**
 
 *(Add this repo's own scars above this line.)*
-
----
-
-## Known divergences in this template
-
-**None outstanding in the template as shipped.** Everything the first draft of
-this file flagged has been fixed:
-
-| Was | Now |
-|---|---|
-| hardcoded `SECRET_KEY`, `DEBUG = True`, `ALLOWED_HOSTS = ['*']` | read from the environment, fail closed; `config/settings.py` refuses to boot without a `SECRET_KEY` when `DEBUG` is off, and refuses `DEBUG` on alongside a routable `DJANGO_ALLOWED_HOSTS` |
-| `CORS_ALLOW_ALL_ORIGINS = True` | `django-cors-headers` removed. Vite proxies `/api` in dev, nginx serves one origin in prod — nothing is cross-origin |
-| no `DEFAULT_PERMISSION_CLASSES`, so every view was public | `IsAuthenticated`. `/api/health/` is the one endpoint that opts out, explicitly |
-| `defaultApp/`, no blessed-core list | `backend/apps/core/` + `backend/apps/README.md` |
-| no production stack | `docker-compose.prod.yml` + `nginx/`, and `tools/verify.sh` builds those images before any deploy |
-| no CI | `.github/workflows/check.yml` runs `make check` — the same command, not a copy of it |
-| no hooks | `.pre-commit-config.yaml`; `make hooks` installs them |
-
-**This section is not decoration — keep it honest.** When you find something in
-this repo that contradicts a rule above and you do not fix it in the same
-commit, add a row with the `file:line` and the smallest fix. A divergence
-nobody wrote down is one that gets copied.
-
-Two things are deliberately still absent, and both fail loudly rather than
-guessing:
-
-- **A configured `PROD_SSH` / `TEST_SSH`** in `tools/project.env`. They are ssh
-  *aliases* from `~/.ssh/config`, not hostnames, because that is where the key,
-  user and port live — and because cron has no ssh-agent to fall back on.
-- **`mypy`.** Worth adding, but a type checker introduced after the code exists
-  spends its first week on the code rather than on the bugs. Add it with the
-  first real app, not before.
 
 ---
 
@@ -780,7 +516,6 @@ either apply it — if it is in scope and low-risk — or leave it flagged.
 Do not silently propagate a legacy pattern into new code because its neighbours
 use it. Do not silently rewrite unrelated files either: **flag, then ask.**
 
-And when a rule here is genuinely wrong for this repo, **write the exception
-into this file** rather than quietly ignoring it. An unwritten exception becomes
-precedent, and precedent is how a convention dies without anyone deciding to
-kill it.
+When a rule here is genuinely wrong for this repo, **write the exception into
+this file** rather than ignoring it. An unwritten exception becomes precedent,
+and precedent is how a convention dies without anyone deciding to kill it.
