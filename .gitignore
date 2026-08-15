@@ -1,1 +1,22 @@
 /.env
+/.env.*
+!/.env.template
+
+# Database archives. Every one is a complete copy of a database, some of them
+# production. They are written 0600 and they never go in git.
+/backups/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Node
+node_modules/
+dist/
+
+# Editors / OS
+.DS_Store
+*.swp
